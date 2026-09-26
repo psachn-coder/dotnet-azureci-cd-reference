@@ -17,18 +17,17 @@ RUN dotnet publish src/Orders.Api/Orders.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
+USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system app \
-    && useradd --system --gid app --home-dir /app app \
-    && chown -R app:app /app
-USER app
+    && rm -rf /var/lib/apt/lists/*
 
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 
-COPY --from=build /app/publish .
+USER $APP_UID
+
+COPY --from=build --chown=$APP_UID /app/publish .
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8080/health || exit 1

@@ -30,3 +30,4 @@ appsettings.*.local.json
 publish/
 *.zip
 *.nupkg
+infra/bicep/*.json

@@ -204,8 +204,7 @@ This repository is a reference implementation for a fixed-price engagement:
 
 > **I will set up a CI/CD pipeline for your .NET app on Azure**
 
-<!-- TODO: Replace with your Upwork profile URL -->
-**Upwork:** `TODO_ADD_YOUR_UPWORK_PROFILE_URL`
+**Upwork:** [https://www.upwork.com/freelancers/~01ad9e4718b822e5d8](https://www.upwork.com/freelancers/~01ad9e4718b822e5d8)
 
 ---
 

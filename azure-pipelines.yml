@@ -1,0 +1,126 @@
+# Azure DevOps pipeline for build, test, infrastructure, and gated deployments.
+# Configure variable groups (Library) and service connections before first run.
+# See README.md and docs/azure-devops-setup.md
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: orders-shared-variables # TODO: create in Azure DevOps Library
+  - name: buildConfiguration
+    value: Release
+  - name: dotnetVersion
+    value: 10.0.x
+
+stages:
+  - stage: Build_Test
+    displayName: Build and test
+    jobs:
+      - job: Build
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - template: .azuredevops/templates/build-test.yml
+            parameters:
+              dotnetVersion: $(dotnetVersion)
+
+          - script: |
+              dotnet publish src/Orders.Api/Orders.Api.csproj \
+                -c $(buildConfiguration) \
+                -o $(Build.ArtifactStagingDirectory)/publish
+            displayName: Publish API
+
+          - task: ArchiveFiles@2
+            displayName: Archive publish output
+            inputs:
+              rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/publish'
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: '$(Build.ArtifactStagingDirectory)/orders-api.zip'
+
+          - publish: $(Build.ArtifactStagingDirectory)/orders-api.zip
+            artifact: drop
+            displayName: Publish artifact
+
+  - stage: Deploy_Dev
+    displayName: Deploy to dev
+    dependsOn: Build_Test
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DevInfrastructure
+        displayName: Dev infrastructure
+        environment: orders-dev # TODO: configure approvals/checks in Azure DevOps Environments
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: .azuredevops/templates/deploy-infrastructure.yml
+                  parameters:
+                    environmentName: dev
+                    azureServiceConnection: $(Azure.ServiceConnection) # e.g. sc-orders-azure
+                    resourceGroupName: $(Dev.ResourceGroupName) # e.g. rg-orders-dev
+                    bicepParametersFile: infra/bicep/parameters/dev.bicepparam
+
+      - deployment: DevApp
+        displayName: Dev application
+        dependsOn: DevInfrastructure
+        environment: orders-dev
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: .azuredevops/templates/deploy-app.yml
+                  parameters:
+                    environmentName: dev
+                    azureServiceConnection: $(Azure.ServiceConnection)
+                    webAppName: $(Dev.WebAppName) # set from deployment outputs or variable group
+
+  - stage: Deploy_Prod
+    displayName: Deploy to prod
+    dependsOn: Deploy_Dev
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: ProdInfrastructure
+        displayName: Prod infrastructure
+        environment: orders-prod # TODO: require manual approval on this environment
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: .azuredevops/templates/deploy-infrastructure.yml
+                  parameters:
+                    environmentName: prod
+                    azureServiceConnection: $(Azure.ServiceConnection)
+                    resourceGroupName: $(Prod.ResourceGroupName)
+                    bicepParametersFile: infra/bicep/parameters/prod.bicepparam
+
+      - deployment: ProdApp
+        displayName: Prod application
+        dependsOn: ProdInfrastructure
+        environment: orders-prod
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: .azuredevops/templates/deploy-app.yml
+                  parameters:
+                    environmentName: prod
+                    azureServiceConnection: $(Azure.ServiceConnection)
+                    webAppName: $(Prod.WebAppName)

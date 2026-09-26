@@ -1,0 +1,33 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+## IDE
+.idea/
+*.swp
+*~
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Secrets
+appsettings.*.local.json
+.env
+.env.*
+
+## Build artifacts
+publish/
+*.zip
+*.nupkg
+infra/bicep/*.json

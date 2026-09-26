@@ -1,0 +1,68 @@
+parameters:
+  - name: dotnetVersion
+    type: string
+    default: '10.0.x'
+
+steps:
+  - task: UseDotNet@2
+    displayName: Install .NET SDK
+    inputs:
+      packageType: sdk
+      version: ${{ parameters.dotnetVersion }}
+
+  - script: dotnet restore Orders.sln
+    displayName: Restore
+
+  - script: dotnet build Orders.sln --configuration Release --no-restore
+    displayName: Build
+
+  - script: >
+      dotnet test Orders.sln
+      --configuration Release
+      --no-build
+      --collect:"XPlat Code Coverage"
+      --results-directory $(Agent.TempDirectory)/TestResults
+      --logger trx
+    displayName: Test with coverage
+
+  - task: PublishTestResults@2
+    displayName: Publish test results
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFormat: VSTest
+      testResultsFiles: '**/*.trx'
+      searchFolder: '$(Agent.TempDirectory)/TestResults'
+
+  - task: PublishCodeCoverageResults@2
+    displayName: Publish code coverage
+    condition: succeededOrFailed()
+    inputs:
+      summaryFileLocation: '$(Agent.TempDirectory)/TestResults/**/coverage.cobertura.xml'
+
+  - task: SonarCloudPrepare@3
+    displayName: SonarCloud prepare
+    condition: and(succeeded(), ne(variables['SonarCloud.ServiceConnection'], ''))
+    inputs:
+      SonarCloud: '$(SonarCloud.ServiceConnection)'
+      organization: '$(SonarCloud.Organization)'
+      scannerMode: dotnet
+      projectKey: '$(SonarCloud.ProjectKey)'
+      projectName: 'Orders API Reference'
+
+  - script: dotnet build Orders.sln --configuration Release
+    displayName: SonarCloud build
+    condition: and(succeeded(), ne(variables['SonarCloud.ServiceConnection'], ''))
+
+  - task: SonarCloudAnalyze@3
+    displayName: SonarCloud analyze
+    condition: and(succeeded(), ne(variables['SonarCloud.ServiceConnection'], ''))
+
+  - task: SonarCloudPublish@3
+    displayName: SonarCloud publish
+    condition: and(succeeded(), ne(variables['SonarCloud.ServiceConnection'], ''))
+    inputs:
+      pollingTimeoutSec: '300'
+
+  - script: dotnet list package --vulnerable --include-transitive
+    displayName: Dependency vulnerability check
+    continueOnError: true

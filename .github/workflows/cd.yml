@@ -1,0 +1,103 @@
+name: CD
+
+# Manual deployments only — keeps checks green when Azure secrets are not configured.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Validate Azure OIDC configuration
+        id: config
+        run: |
+          if [ -z "${AZURE_CLIENT_ID}" ] || [ -z "${AZURE_TENANT_ID}" ] || [ -z "${AZURE_SUBSCRIPTION_ID}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Azure OIDC secrets are not set. Configure AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_SUBSCRIPTION_ID to deploy."
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.config.outputs.configured == 'true'
+
+      - name: Setup .NET
+        if: steps.config.outputs.configured == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Azure login (OIDC)
+        if: steps.config.outputs.configured == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Select deployment settings
+        if: steps.config.outputs.configured == 'true'
+        id: settings
+        run: |
+          if [ "${{ inputs.environment }}" = "dev" ]; then
+            echo "rg=${{ vars.DEV_RESOURCE_GROUP }}" >> "$GITHUB_OUTPUT"
+            echo "params=infra/bicep/parameters/dev.bicepparam" >> "$GITHUB_OUTPUT"
+            echo "webapp=${{ vars.DEV_WEB_APP_NAME }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "rg=${{ vars.PROD_RESOURCE_GROUP }}" >> "$GITHUB_OUTPUT"
+            echo "params=infra/bicep/parameters/prod.bicepparam" >> "$GITHUB_OUTPUT"
+            echo "webapp=${{ vars.PROD_WEB_APP_NAME }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bicep what-if
+        if: steps.config.outputs.configured == 'true'
+        run: |
+          az group create --name "${{ steps.settings.outputs.rg }}" --location "${{ vars.AZURE_LOCATION || 'westeurope' }}" --output none
+          az deployment group what-if \
+            --resource-group "${{ steps.settings.outputs.rg }}" \
+            --template-file infra/bicep/main.bicep \
+            --parameters @"${{ steps.settings.outputs.params }}"
+
+      - name: Bicep deploy
+        if: steps.config.outputs.configured == 'true'
+        run: |
+          az deployment group create \
+            --resource-group "${{ steps.settings.outputs.rg }}" \
+            --template-file infra/bicep/main.bicep \
+            --parameters @"${{ steps.settings.outputs.params }}" \
+            --name "orders-${{ inputs.environment }}-${{ github.run_id }}"
+
+      - name: Publish application package
+        if: steps.config.outputs.configured == 'true'
+        run: |
+          dotnet publish src/Orders.Api/Orders.Api.csproj -c Release -o ./publish
+          cd publish && zip -r ../orders-api.zip .
+
+      - name: Deploy to Azure Web App
+        if: steps.config.outputs.configured == 'true'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.settings.outputs.webapp }}
+          package: orders-api.zip
+
+      - name: Skip notice
+        if: steps.config.outputs.configured != 'true'
+        run: echo "CD skipped — configure GitHub secrets and environment variables to enable Azure deployment."

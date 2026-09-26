@@ -1,0 +1,11 @@
+**/.git
+**/.github
+**/.azuredevops
+**/bin
+**/obj
+**/.vs
+**/*.user
+**/TestResults
+**/coverage
+README.md
+docs/

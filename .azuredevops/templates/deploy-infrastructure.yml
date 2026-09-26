@@ -1,0 +1,41 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: azureServiceConnection
+    type: string
+  - name: resourceGroupName
+    type: string
+  - name: location
+    type: string
+    default: 'westeurope'
+  - name: bicepParametersFile
+    type: string
+
+steps:
+  - task: AzureCLI@2
+    displayName: Bicep what-if (${{ parameters.environmentName }})
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        az group create --name "${{ parameters.resourceGroupName }}" --location "${{ parameters.location }}" --output none
+        az deployment group what-if \
+          --resource-group "${{ parameters.resourceGroupName }}" \
+          --template-file infra/bicep/main.bicep \
+          --parameters @"${{ parameters.bicepParametersFile }}"
+
+  - task: AzureCLI@2
+    displayName: Bicep deploy (${{ parameters.environmentName }})
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -euo pipefail
+        az deployment group create \
+          --resource-group "${{ parameters.resourceGroupName }}" \
+          --template-file infra/bicep/main.bicep \
+          --parameters @"${{ parameters.bicepParametersFile }}" \
+          --name "orders-${{ parameters.environmentName }}-$(Build.BuildId)"

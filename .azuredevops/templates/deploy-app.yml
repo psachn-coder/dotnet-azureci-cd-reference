@@ -1,0 +1,19 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: azureServiceConnection
+    type: string
+  - name: webAppName
+    type: string
+
+steps:
+  - download: current
+    artifact: drop
+
+  - task: AzureWebApp@1
+    displayName: Deploy to App Service (${{ parameters.environmentName }})
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      appType: webAppLinux
+      appName: ${{ parameters.webAppName }}
+      package: '$(Pipeline.Workspace)/drop/orders-api.zip'
